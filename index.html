@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cronometraje</title>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Cronos">
+    <link rel="apple-touch-icon" href="icon.png">
+
+    <style>
+        :root {
+            --bg-color: #111;
+            --accent-color: #2ecc71;
+            --text-color: #fff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            text-align: center;
+            margin: 0;
+            padding-top: env(safe-area-inset-top); /* Evita la zona del "notch" */
+            user-select: none; /* Evita que se seleccione texto al tocar rápido */
+        }
+        h2 { margin-top: 20px; }
+        button {
+            font-size: 22px;
+            padding: 15px 25px;
+            margin: 10px;
+            border-radius: 12px;
+            border: none;
+            background: #444;
+            color: white;
+            active: opacity 0.7;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin: 20px;
+            padding: 10px;
+        }
+        .dorsal {
+            background: var(--accent-color);
+            color: black;
+            font-weight: bold;
+            font-size: 32px; /* Más grande para iPhone */
+            padding: 25px 10px;
+            border-radius: 15px;
+        }
+        .hidden { display: none; }
+        #timer {
+            font-size: 65px;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+            margin: 30px 0;
+            color: var(--accent-color);
+        }
+        input {
+            font-size: 22px;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #555;
+            background: #222;
+            color: white;
+            width: 80%;
+            margin-bottom: 10px;
+        }
+        table { width: 95%; margin: auto; border-collapse: collapse; font-size: 18px; }
+        th { background: #333; padding: 12px; border: 1px solid #555; }
+        td { padding: 12px; border: 1px solid #555; }
+        .btn-main { background: #3498db; width: 85%; font-weight: bold; }
+        .btn-danger { background: #e74c3c; }
+    </style>
+</head>
+<body>
+
+<h2 id="header">Nueva Tanda</h2>
+
+<div id="setup">
+    <input id="entryTanda" type="number" placeholder="Nº de Tanda" inputmode="numeric">
+    <br>
+    <button class="btn-main" onclick="confirmTanda()">Confirmar Tanda</button>
+</div>
+
+<div id="dorsalSetup" class="hidden">
+    <input id="dorsalInput" placeholder="Añadir Dorsal" type="number" inputmode="numeric">
+    <div style="display: flex; justify-content: center;">
+        <button onclick="addDorsal()">Añadir</button>
+        <button class="btn-danger" onclick="removeLastDorsal()">Borrar último</button>
+    </div>
+    <div id="list" style="margin: 20px; white-space: pre-wrap; font-size: 18px; color: #aaa;"></div>
+    <button class="btn-main" onclick="startRace()">INICIAR SALIDA</button>
+</div>
+
+<div id="race" class="hidden">
+    <div id="timer">00:00</div>
+    <div id="grid" class="grid"></div>
+    <div style="margin-top: 20px;">
+        <button onclick="undo()">DESHACER</button>
+        <button class="btn-danger" onclick="finishRace()">CERRAR TANDA</button>
+    </div>
+</div>
+
+<div id="results" class="hidden">
+    <h3 id="resultHeader"></h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Pos</th>
+                <th>Dorsal</th>
+                <th>Tiempo</th>
+            </tr>
+        </thead>
+        <tbody id="resultTable"></tbody>
+    </table>
+    <br>
+    <button class="btn-main" onclick="sendEmail()">ENVIAR POR EMAIL</button>
+    <button onclick="newTanda()">Nueva tanda</button>
+</div>
+
+<script>
+let dorsals = [];
+let results = [];
+let history = [];
+let startTime;
+let interval;
+let tanda = null;
+
+function confirmTanda(){
+    const t = document.getElementById("entryTanda").value;
+    if(!t) { alert("Introduce un número de tanda"); return; }
+    tanda = t;
+    document.getElementById("setup").classList.add("hidden");
+    document.getElementById("dorsalSetup").classList.remove("hidden");
+    updateList();
+}
+
+function addDorsal(){
+    const input = document.getElementById("dorsalInput");
+    const d = parseInt(input.value);
+    if(!d || dorsals.includes(d)) return;
+    dorsals.push(d);
+    history.push(d);
+    dorsals.sort((a,b)=>a-b);
+    input.value="";
+    updateList();
+}
+
+function removeLastDorsal(){
+    if(history.length==0) return;
+    const last = history.pop();
+    dorsals = dorsals.filter(d=>d!=last);
+    updateList();
+}
+
+function updateList(){
+    const listDiv = document.getElementById("list");
+    listDiv.innerText = dorsals.length > 0 ? "Dorsales: " + dorsals.join(", ") : "Sin dorsales añadidos";
+}
+
+function startRace(){
+    if(dorsals.length==0) return;
+    document.getElementById("dorsalSetup").classList.add("hidden");
+    document.getElementById("race").classList.remove("hidden");
+    document.getElementById("header").innerText = "Tanda " + tanda + " en curso";
+    startTime = Date.now();
+    interval = setInterval(updateTimer, 100);
+    drawGrid();
+}
+
+function updateTimer(){
+    let t = Date.now()-startTime;
+    let s = Math.floor(t/1000), m=Math.floor(s/60); s=s%60;
+    document.getElementById("timer").innerText = String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+
+function drawGrid(){
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+    dorsals.sort((a,b)=>a-b).forEach(d=>{
+        const btn = document.createElement("button");
+        btn.className="dorsal";
+        btn.innerText=d;
+        btn.onclick = ()=>register(d);
+        grid.appendChild(btn);
+    });
+}
+
+function register(d){
+    if(window.navigator.vibrate) window.navigator.vibrate(50);
+    let time = Date.now()-startTime;
+    results.push({pos:results.length+1, dorsal:d, time:time});
+    dorsals = dorsals.filter(x=>x!=d);
+    drawGrid();
+}
+
+function undo(){
+    if(results.length==0) return;
+    const r = results.pop();
+    dorsals.push(r.dorsal);
+    drawGrid();
+}
+
+function finishRace(){
+    clearInterval(interval);
+    dorsals.forEach(d=>{
+        results.push({pos:"-", dorsal:d, time:"RETIRADO"});
+    });
+    dorsals = [];
+    showResults();
+}
+
+function format(ms){
+    if(ms==="RETIRADO") return ms;
+    let s=Math.floor(ms/1000), m=Math.floor(s/60); s=s%60;
+    return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+
+function showResults(){
+    document.getElementById("race").classList.add("hidden");
+    document.getElementById("results").classList.remove("hidden");
+    document.getElementById("header").innerText = "Tanda Finalizada";
+    const date = new Date().toLocaleDateString();
+    document.getElementById("resultHeader").innerText = `Tanda ${tanda} - ${date}`;
+    let html="";
+    results.forEach(r=>{
+        html+=`<tr><td>${r.pos}</td><td>${r.dorsal}</td><td>${format(r.time)}</td></tr>`;
+    });
+    document.getElementById("resultTable").innerHTML=html;
+}
+
+function sendEmail(){
+    const date = new Date().toLocaleDateString();
+    let text=`Resultados Tanda ${tanda} (${date})%0D%0A%0D%0A`;
+    results.forEach(r=>{
+        text+=`${r.pos} - Dorsal: ${r.dorsal} - Tiempo: ${format(r.time)}%0D%0A`;
+    });
+    window.location.href="mailto:?subject=Resultados Carrera Tanda "+tanda+"&body="+text;
+}
+
+function newTanda(){
+    location.reload(); // Reiniciar app limpia
+}
+</script>
+</body>
+</html>
