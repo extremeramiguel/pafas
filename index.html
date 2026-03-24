@@ -8,7 +8,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Cronos">
-    <link rel="apple-touch-icon" href="icon.png">
 
     <style>
         :root {
@@ -22,8 +21,8 @@
             color: var(--text-color);
             text-align: center;
             margin: 0;
-            padding-top: env(safe-area-inset-top); /* Evita la zona del "notch" */
-            user-select: none; /* Evita que se seleccione texto al tocar rápido */
+            padding-top: env(safe-area-inset-top);
+            user-select: none;
         }
         h2 { margin-top: 20px; }
         button {
@@ -34,8 +33,9 @@
             border: none;
             background: #444;
             color: white;
-            active: opacity 0.7;
+            cursor: pointer;
         }
+        button:active { opacity: 0.7; }
         .grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -44,14 +44,17 @@
             padding: 10px;
         }
         .dorsal {
-            background: var(--accent-color);
-            color: black;
+            border: 4px solid var(--accent-color);
+            box-sizing: border-box;
+            color: white;
             font-weight: bold;
-            font-size: 32px; /* Más grande para iPhone */
+            font-size: 32px;
             padding: 25px 10px;
             border-radius: 15px;
+            text-shadow: 1px 1px 4px rgba(0,0,0,0.9);
+            transition: background 0.2s ease;
         }
-        .hidden { display: none; }
+        .hidden { display: none !important; }
         #timer {
             font-size: 65px;
             font-weight: bold;
@@ -73,21 +76,45 @@
         th { background: #333; padding: 12px; border: 1px solid #555; }
         td { padding: 12px; border: 1px solid #555; }
         .btn-main { background: #3498db; width: 85%; font-weight: bold; }
+        .btn-success { background: #2ecc71; width: 85%; font-weight: bold; }
         .btn-danger { background: #e74c3c; }
+
+        /* Estilos específicos para la pantalla de Login */
+        #loginScreen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 80vh;
+        }
+        .login-title {
+            font-size: 48px;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin-bottom: 30px;
+            letter-spacing: 2px;
+        }
     </style>
 </head>
 <body>
 
-<h2 id="header">Nueva Tanda</h2>
+<div id="loginScreen">
+    <div class="login-title">PAFAS 2026</div>
+    <input id="codigoInput" type="password" placeholder="Introduce el código" inputmode="numeric" style="text-align: center;" onkeyup="if(event.key === 'Enter') checkCode()">
+    <button class="btn-main" onclick="checkCode()">Acceder</button>
+</div>
 
-<div id="setup">
+<h2 id="header" class="hidden">Nueva Tanda</h2>
+
+<div id="setup" class="hidden">
     <input id="entryTanda" type="number" placeholder="Nº de Tanda" inputmode="numeric">
+    <input id="entryLaps" type="number" placeholder="Nº de Vueltas" inputmode="numeric" value="5">
     <br>
     <button class="btn-main" onclick="confirmTanda()">Confirmar Tanda</button>
 </div>
 
 <div id="dorsalSetup" class="hidden">
-    <input id="dorsalInput" placeholder="Añadir Dorsal" type="number" inputmode="numeric">
+    <input id="dorsalInput" placeholder="Añadir (Ej: 1, 4, 12)" type="text" onkeyup="if(event.key === 'Enter') addDorsal()">
     <div style="display: flex; justify-content: center;">
         <button onclick="addDorsal()">Añadir</button>
         <button class="btn-danger" onclick="removeLastDorsal()">Borrar último</button>
@@ -110,7 +137,7 @@
     <table>
         <thead>
             <tr>
-                <th>Pos</th>
+                <th>Posición</th>
                 <th>Dorsal</th>
                 <th>Tiempo</th>
             </tr>
@@ -119,42 +146,150 @@
     </table>
     <br>
     <button class="btn-main" onclick="sendEmail()">ENVIAR POR EMAIL</button>
-    <button onclick="newTanda()">Nueva tanda</button>
+    <button class="btn-success" onclick="downloadCSV()">DESCARGAR EXCEL</button>
+    <button onclick="newTanda()" style="width: 85%;">Nueva tanda</button>
 </div>
 
 <script>
-let dorsals = [];
+// --- VARIABLES DE ESTADO ---
+let dorsals = []; 
+let activeRunners = []; 
 let results = [];
-let history = [];
+let historyRace = []; 
+let setupHistory = []; 
 let startTime;
 let interval;
 let tanda = null;
+let totalLaps = 5; 
+let currentScreen = "setup"; 
+let screenToGo = "setup"; // Variable auxiliar para saber a qué pantalla ir tras el login
 
+// --- SISTEMA DE GUARDADO (LOCALSTORAGE) ---
+function saveData() {
+    const state = {
+        tanda, totalLaps, currentScreen, dorsals, activeRunners, 
+        results, historyRace, setupHistory, startTime
+    };
+    localStorage.setItem('cronosData', JSON.stringify(state));
+}
+
+function loadData() {
+    const saved = localStorage.getItem('cronosData');
+    if (saved) {
+        const state = JSON.parse(saved);
+        tanda = state.tanda;
+        totalLaps = state.totalLaps || 5; 
+        screenToGo = state.currentScreen || "setup";
+        dorsals = state.dorsals;
+        activeRunners = state.activeRunners;
+        results = state.results;
+        historyRace = state.historyRace;
+        setupHistory = state.setupHistory;
+        startTime = state.startTime;
+    }
+
+    // Ocultar todas las pantallas de la app por defecto
+    document.getElementById("setup").classList.add("hidden");
+    document.getElementById("dorsalSetup").classList.add("hidden");
+    document.getElementById("race").classList.add("hidden");
+    document.getElementById("results").classList.add("hidden");
+    document.getElementById("header").classList.add("hidden");
+
+    // Comprobar si ya puso la contraseña en esta pestaña
+    if (sessionStorage.getItem('auth') === 'true') {
+        document.getElementById("loginScreen").classList.add("hidden");
+        unlockApp();
+    } else {
+        document.getElementById("loginScreen").classList.remove("hidden");
+    }
+}
+
+window.onload = loadData;
+
+// --- SISTEMA DE ACCESO ---
+function checkCode() {
+    const input = document.getElementById("codigoInput").value;
+    if (input === "250326") {
+        sessionStorage.setItem('auth', 'true'); // Guardar sesión temporal
+        document.getElementById("loginScreen").classList.add("hidden");
+        unlockApp();
+    } else {
+        alert("Código incorrecto");
+        document.getElementById("codigoInput").value = "";
+    }
+}
+
+function unlockApp() {
+    document.getElementById("header").classList.remove("hidden");
+    currentScreen = screenToGo;
+    
+    // Restaurar la pantalla en la que estábamos
+    if (currentScreen === "dorsalSetup") {
+        document.getElementById("dorsalSetup").classList.remove("hidden");
+        updateList();
+    } else if (currentScreen === "race") {
+        document.getElementById("race").classList.remove("hidden");
+        document.getElementById("header").innerText = `Tanda ${tanda} (${totalLaps} vueltas)`;
+        interval = setInterval(updateTimer, 100);
+        drawGrid();
+    } else if (currentScreen === "results") {
+        document.getElementById("results").classList.remove("hidden");
+        renderResultsView();
+    } else {
+        document.getElementById("setup").classList.remove("hidden");
+        document.getElementById("header").innerText = "Nueva Tanda";
+    }
+}
+
+// --- FUNCIONES DEL PROGRAMA ---
 function confirmTanda(){
     const t = document.getElementById("entryTanda").value;
+    const l = document.getElementById("entryLaps").value;
+    
     if(!t) { alert("Introduce un número de tanda"); return; }
+    if(!l || parseInt(l) < 1) { alert("Introduce un número válido de vueltas"); return; }
+    
     tanda = t;
+    totalLaps = parseInt(l);
+    currentScreen = "dorsalSetup";
+    
     document.getElementById("setup").classList.add("hidden");
     document.getElementById("dorsalSetup").classList.remove("hidden");
     updateList();
+    saveData();
 }
 
 function addDorsal(){
-    const input = document.getElementById("dorsalInput");
-    const d = parseInt(input.value);
-    if(!d || dorsals.includes(d)) return;
-    dorsals.push(d);
-    history.push(d);
-    dorsals.sort((a,b)=>a-b);
-    input.value="";
-    updateList();
+    const input = document.getElementById("dorsalInput").value;
+    if(!input) return;
+    
+    const nuevosDorsales = input.split(',')
+                               .map(n => parseInt(n.trim()))
+                               .filter(n => !isNaN(n));
+    
+    let agregados = [];
+    nuevosDorsales.forEach(d => {
+        if(!dorsals.includes(d)) {
+            dorsals.push(d);
+            agregados.push(d); 
+        }
+    });
+
+    if(agregados.length > 0){
+        setupHistory.push(agregados); 
+        dorsals.sort((a,b)=>a-b);
+        updateList();
+        saveData();
+    }
+    document.getElementById("dorsalInput").value = "";
 }
 
 function removeLastDorsal(){
-    if(history.length==0) return;
-    const last = history.pop();
-    dorsals = dorsals.filter(d=>d!=last);
+    if(setupHistory.length==0) return;
+    const ultimosAgregados = setupHistory.pop();
+    dorsals = dorsals.filter(d => !ultimosAgregados.includes(d));
     updateList();
+    saveData();
 }
 
 function updateList(){
@@ -164,12 +299,18 @@ function updateList(){
 
 function startRace(){
     if(dorsals.length==0) return;
+    currentScreen = "race";
     document.getElementById("dorsalSetup").classList.add("hidden");
     document.getElementById("race").classList.remove("hidden");
-    document.getElementById("header").innerText = "Tanda " + tanda + " en curso";
+    document.getElementById("header").innerText = `Tanda ${tanda} (${totalLaps} vueltas)`;
+    
+    activeRunners = dorsals.map(d => ({ id: d, laps: 0 }));
+    historyRace = []; 
+    
     startTime = Date.now();
     interval = setInterval(updateTimer, 100);
     drawGrid();
+    saveData();
 }
 
 function updateTimer(){
@@ -181,37 +322,84 @@ function updateTimer(){
 function drawGrid(){
     const grid = document.getElementById("grid");
     grid.innerHTML = "";
-    dorsals.sort((a,b)=>a-b).forEach(d=>{
+    
+    activeRunners.sort((a,b)=>a.id-b.id).forEach(runner => {
         const btn = document.createElement("button");
-        btn.className="dorsal";
-        btn.innerText=d;
-        btn.onclick = ()=>register(d);
+        btn.className = "dorsal";
+        btn.innerText = runner.id;
+        
+        const color = "#2ecc71"; 
+        const visualPortions = totalLaps - 1; 
+        
+        if (totalLaps === 1) {
+            btn.style.background = "transparent";
+            btn.style.color = color;
+            btn.style.textShadow = "none";
+        } else if (runner.laps === 0) {
+            btn.style.background = color;
+        } else if (runner.laps === visualPortions) {
+            btn.style.background = "transparent";
+            btn.style.color = color;
+            btn.style.textShadow = "none";
+        } else {
+            const percentTransparent = (runner.laps / visualPortions) * 100;
+            btn.style.background = `conic-gradient(from 270deg, transparent 0% ${percentTransparent}%, ${color} ${percentTransparent}% 100%)`;
+        }
+        
+        btn.onclick = () => register(runner.id);
         grid.appendChild(btn);
     });
 }
 
-function register(d){
+function register(dId){
     if(window.navigator.vibrate) window.navigator.vibrate(50);
-    let time = Date.now()-startTime;
-    results.push({pos:results.length+1, dorsal:d, time:time});
-    dorsals = dorsals.filter(x=>x!=d);
+    
+    let runner = activeRunners.find(r => r.id === dId);
+    
+    if (runner.laps < totalLaps - 1) {
+        runner.laps++;
+        historyRace.push({ type: 'lap', id: dId });
+    } else {
+        let time = Date.now() - startTime;
+        let resultObj = { pos: results.length + 1, dorsal: dId, time: time };
+        results.push(resultObj);
+        
+        activeRunners = activeRunners.filter(r => r.id !== dId);
+        historyRace.push({ type: 'finish', id: dId, result: resultObj });
+    }
     drawGrid();
+    saveData();
 }
 
 function undo(){
-    if(results.length==0) return;
-    const r = results.pop();
-    dorsals.push(r.dorsal);
+    if(historyRace.length == 0) return;
+    
+    const lastAction = historyRace.pop();
+    
+    if (lastAction.type === 'lap') {
+        let runner = activeRunners.find(r => r.id === lastAction.id);
+        if (runner) runner.laps--;
+    } else if (lastAction.type === 'finish') {
+        results.pop(); 
+        activeRunners.push({ id: lastAction.id, laps: totalLaps - 1 }); 
+    }
     drawGrid();
+    saveData();
 }
 
 function finishRace(){
     clearInterval(interval);
-    dorsals.forEach(d=>{
-        results.push({pos:"-", dorsal:d, time:"RETIRADO"});
+    activeRunners.forEach(runner => {
+        results.push({pos:"-", dorsal: runner.id, time:"RETIRADO"});
     });
-    dorsals = [];
-    showResults();
+    activeRunners = [];
+    currentScreen = "results";
+    
+    document.getElementById("race").classList.add("hidden");
+    document.getElementById("results").classList.remove("hidden");
+    
+    renderResultsView();
+    saveData();
 }
 
 function format(ms){
@@ -220,9 +408,7 @@ function format(ms){
     return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
 }
 
-function showResults(){
-    document.getElementById("race").classList.add("hidden");
-    document.getElementById("results").classList.remove("hidden");
+function renderResultsView(){
     document.getElementById("header").innerText = "Tanda Finalizada";
     const date = new Date().toLocaleDateString();
     document.getElementById("resultHeader").innerText = `Tanda ${tanda} - ${date}`;
@@ -236,14 +422,33 @@ function showResults(){
 function sendEmail(){
     const date = new Date().toLocaleDateString();
     let text=`Resultados Tanda ${tanda} (${date})%0D%0A%0D%0A`;
+    text+=`Posición - Dorsal - Tiempo%0D%0A`;
     results.forEach(r=>{
-        text+=`${r.pos} - Dorsal: ${r.dorsal} - Tiempo: ${format(r.time)}%0D%0A`;
+        text+=`${r.pos} - ${r.dorsal} - ${format(r.time)}%0D%0A`;
     });
-    window.location.href="mailto:?subject=Resultados Carrera Tanda "+tanda+"&body="+text;
+    window.location.href="mailto:extremeramiguel@me.com?subject=Resultados Carrera Tanda "+tanda+"&body="+text;
+}
+
+function downloadCSV() {
+    let csvContent = "\uFEFFPosición;Dorsal;Tiempo\n";
+    results.forEach(r => {
+        csvContent += `${r.pos};${r.dorsal};${format(r.time)}\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Resultados_Tanda_${tanda}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 function newTanda(){
-    location.reload(); // Reiniciar app limpia
+    localStorage.removeItem('cronosData'); 
+    location.reload(); 
 }
 </script>
 </body>
