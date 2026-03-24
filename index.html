@@ -22,7 +22,8 @@
             text-align: center;
             margin: 0;
             padding-top: env(safe-area-inset-top);
-            user-select: none;
+            user-select: none; /* Evita que seleccionen el texto arrastrando el dedo/ratón */
+            -webkit-touch-callout: none; /* Evita menús contextuales largos en iOS */
         }
         h2 { margin-top: 20px; }
         button {
@@ -71,6 +72,7 @@
             color: white;
             width: 80%;
             margin-bottom: 10px;
+            outline: none;
         }
         table { width: 95%; margin: auto; border-collapse: collapse; font-size: 18px; }
         th { background: #333; padding: 12px; border: 1px solid #555; }
@@ -79,7 +81,6 @@
         .btn-success { background: #2ecc71; width: 85%; font-weight: bold; }
         .btn-danger { background: #e74c3c; }
 
-        /* Estilos específicos para la pantalla de Login */
         #loginScreen {
             display: flex;
             flex-direction: column;
@@ -151,6 +152,18 @@
 </div>
 
 <script>
+// --- ESCUDO ANTI-CURIOSOS ---
+// Bloquear clic derecho
+document.addEventListener('contextmenu', event => event.preventDefault());
+// Bloquear atajos de teclado (F12, Ctrl+U, Ctrl+Shift+I/J)
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'F12' || 
+       (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J')) || 
+       (e.ctrlKey && e.key === 'U')) {
+        e.preventDefault();
+    }
+});
+
 // --- VARIABLES DE ESTADO ---
 let dorsals = []; 
 let activeRunners = []; 
@@ -162,9 +175,9 @@ let interval;
 let tanda = null;
 let totalLaps = 5; 
 let currentScreen = "setup"; 
-let screenToGo = "setup"; // Variable auxiliar para saber a qué pantalla ir tras el login
+let screenToGo = "setup"; 
 
-// --- SISTEMA DE GUARDADO (LOCALSTORAGE) ---
+// --- SISTEMA DE GUARDADO ---
 function saveData() {
     const state = {
         tanda, totalLaps, currentScreen, dorsals, activeRunners, 
@@ -188,14 +201,12 @@ function loadData() {
         startTime = state.startTime;
     }
 
-    // Ocultar todas las pantallas de la app por defecto
     document.getElementById("setup").classList.add("hidden");
     document.getElementById("dorsalSetup").classList.add("hidden");
     document.getElementById("race").classList.add("hidden");
     document.getElementById("results").classList.add("hidden");
     document.getElementById("header").classList.add("hidden");
 
-    // Comprobar si ya puso la contraseña en esta pestaña
     if (sessionStorage.getItem('auth') === 'true') {
         document.getElementById("loginScreen").classList.add("hidden");
         unlockApp();
@@ -206,11 +217,12 @@ function loadData() {
 
 window.onload = loadData;
 
-// --- SISTEMA DE ACCESO ---
+// --- SISTEMA DE ACCESO (OFUSCADO) ---
 function checkCode() {
-    const input = document.getElementById("codigoInput").value;
-    if (input === "250326") {
-        sessionStorage.setItem('auth', 'true'); // Guardar sesión temporal
+    const _0x1a2b = document.getElementById("codigoInput").value;
+    // Comprueba la clave ofuscada en Base64
+    if (btoa(_0x1a2b) === "MjUwMzI2") {
+        sessionStorage.setItem('auth', 'true'); 
         document.getElementById("loginScreen").classList.add("hidden");
         unlockApp();
     } else {
@@ -223,7 +235,6 @@ function unlockApp() {
     document.getElementById("header").classList.remove("hidden");
     currentScreen = screenToGo;
     
-    // Restaurar la pantalla en la que estábamos
     if (currentScreen === "dorsalSetup") {
         document.getElementById("dorsalSetup").classList.remove("hidden");
         updateList();
@@ -245,7 +256,6 @@ function unlockApp() {
 function confirmTanda(){
     const t = document.getElementById("entryTanda").value;
     const l = document.getElementById("entryLaps").value;
-    
     if(!t) { alert("Introduce un número de tanda"); return; }
     if(!l || parseInt(l) < 1) { alert("Introduce un número válido de vueltas"); return; }
     
@@ -262,19 +272,11 @@ function confirmTanda(){
 function addDorsal(){
     const input = document.getElementById("dorsalInput").value;
     if(!input) return;
-    
-    const nuevosDorsales = input.split(',')
-                               .map(n => parseInt(n.trim()))
-                               .filter(n => !isNaN(n));
-    
+    const nuevosDorsales = input.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
     let agregados = [];
     nuevosDorsales.forEach(d => {
-        if(!dorsals.includes(d)) {
-            dorsals.push(d);
-            agregados.push(d); 
-        }
+        if(!dorsals.includes(d)) { dorsals.push(d); agregados.push(d); }
     });
-
     if(agregados.length > 0){
         setupHistory.push(agregados); 
         dorsals.sort((a,b)=>a-b);
@@ -306,7 +308,6 @@ function startRace(){
     
     activeRunners = dorsals.map(d => ({ id: d, laps: 0 }));
     historyRace = []; 
-    
     startTime = Date.now();
     interval = setInterval(updateTimer, 100);
     drawGrid();
@@ -322,12 +323,10 @@ function updateTimer(){
 function drawGrid(){
     const grid = document.getElementById("grid");
     grid.innerHTML = "";
-    
     activeRunners.sort((a,b)=>a.id-b.id).forEach(runner => {
         const btn = document.createElement("button");
         btn.className = "dorsal";
         btn.innerText = runner.id;
-        
         const color = "#2ecc71"; 
         const visualPortions = totalLaps - 1; 
         
@@ -353,9 +352,7 @@ function drawGrid(){
 
 function register(dId){
     if(window.navigator.vibrate) window.navigator.vibrate(50);
-    
     let runner = activeRunners.find(r => r.id === dId);
-    
     if (runner.laps < totalLaps - 1) {
         runner.laps++;
         historyRace.push({ type: 'lap', id: dId });
@@ -363,7 +360,6 @@ function register(dId){
         let time = Date.now() - startTime;
         let resultObj = { pos: results.length + 1, dorsal: dId, time: time };
         results.push(resultObj);
-        
         activeRunners = activeRunners.filter(r => r.id !== dId);
         historyRace.push({ type: 'finish', id: dId, result: resultObj });
     }
@@ -373,9 +369,7 @@ function register(dId){
 
 function undo(){
     if(historyRace.length == 0) return;
-    
     const lastAction = historyRace.pop();
-    
     if (lastAction.type === 'lap') {
         let runner = activeRunners.find(r => r.id === lastAction.id);
         if (runner) runner.laps--;
@@ -394,10 +388,8 @@ function finishRace(){
     });
     activeRunners = [];
     currentScreen = "results";
-    
     document.getElementById("race").classList.add("hidden");
     document.getElementById("results").classList.remove("hidden");
-    
     renderResultsView();
     saveData();
 }
@@ -434,10 +426,8 @@ function downloadCSV() {
     results.forEach(r => {
         csvContent += `${r.pos};${r.dorsal};${format(r.time)}\n`;
     });
-    
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    
     const link = document.createElement("a");
     link.setAttribute("href", url);
     link.setAttribute("download", `Resultados_Tanda_${tanda}.csv`);
